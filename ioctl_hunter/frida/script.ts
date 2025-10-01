@@ -135,10 +135,18 @@ function DeviceIoControl_OnEnter_Manager(this_cpy, symbol_src, args, is_kernel_l
 
     this_cpy.symbol_src = symbol_src
     this_cpy.is_kernel_libs = is_kernel_libs
+    this_cpy.should_process = hook_enabled && !(excluded_ioctl.includes(this_cpy.ioctl))
 }
 
 function DeviceIoControl_OnLeave_Manager(this_cpy) {
-    if (hook_enabled && !(excluded_ioctl.includes(this_cpy.ioctl))) {
+    if (this_cpy.should_process) {
+        var bytes_returned = 0
+        if (this_cpy.is_kernel_libs && this_cpy.bytes_returned_ptr) {
+            bytes_returned = this_cpy.bytes_returned_ptr.readU32()
+        }
+
+        let actual_out_size = bytes_returned > 0 ? bytes_returned : this_cpy.buff_out_size
+
         let hex_in = hexdump(this_cpy.buff_in_addr, {
             offset: 0,
             length: this_cpy.buff_in_size,
@@ -146,14 +154,9 @@ function DeviceIoControl_OnLeave_Manager(this_cpy) {
             ansi: false
         })
 
-        var bytes_returned = ''
-        if (this_cpy.is_kernel_libs && this_cpy.bytes_returned_ptr) {
-            bytes_returned = Memory.readU32(this_cpy.bytes_returned_ptr)
-        }
-
         let hex_out = hexdump(this_cpy.buff_out_addr, {
             offset: 0,
-            length: this_cpy.buff_out_size,
+            length: actual_out_size,
             header: true,
             ansi: false
         })
@@ -187,7 +190,7 @@ Interceptor.attach(NtDeviceIoControlFile, {
         }
     },
     onLeave(retval) {
-        if (all_symbols) {
+        if (all_symbols && this.should_process) {
             DeviceIoControl_OnLeave_Manager(this)
         }
     },
@@ -199,7 +202,9 @@ Interceptor.attach(ZwDeviceIoControlFile, {
         DeviceIoControl_OnEnter_Manager(this, symbol_src, args, false)
     },
     onLeave(retval) {
-        DeviceIoControl_OnLeave_Manager(this)
+        if (this.should_process) {
+            DeviceIoControl_OnLeave_Manager(this)
+        }
     },
 });
 
@@ -211,7 +216,7 @@ Interceptor.attach(DeviceIoControl_kernel32, {
         }
     },
     onLeave(retval) {
-        if (all_symbols) {
+        if (all_symbols && this.should_process) {
             DeviceIoControl_OnLeave_Manager(this)
         }
     },
@@ -225,7 +230,7 @@ Interceptor.attach(DeviceIoControl_kernelbase, {
         }
     },
     onLeave(retval) {
-        if (all_symbols) {
+        if (all_symbols && this.should_process) {
             DeviceIoControl_OnLeave_Manager(this)
         }
     },
