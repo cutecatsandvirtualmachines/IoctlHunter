@@ -60,40 +60,50 @@ rpc.exports = {
 };
 
 function getPathByHandle(handle) {
-    var ptr = Memory.alloc(2048)
-    var ptr2 = Memory.alloc(2048)
-    var ret = Func_NtQueryObject(handle, 1, ptr, 1024, ptr2)
+    try {
+        var ptr = Memory.alloc(2048)
+        var ptr2 = Memory.alloc(2048)
+        var ret = Func_NtQueryObject(handle, 1, ptr, 1024, ptr2)
 
-    if (x32) {
-        var path = Memory.readUtf16String(ptr.add(8))
-    }
-    else {
-        var path = Memory.readUtf16String(ptr.add(16))
-    }
+        if (x32) {
+            var path = Memory.readUtf16String(ptr.add(8))
+        }
+        else {
+            var path = Memory.readUtf16String(ptr.add(16))
+        }
 
-    return path
+        return path
+    }
+    catch (e) {
+        return ""
+    }
 }
 
 function LoadDriver_Manager(args) {
-    if (x32) {
-        var loaded_driver = args[0].add(24).readUtf16String()
-    }
-    else {
-        var loaded_driver = args[0].add(16).readUtf16String()
-    }
-    var tmp_driver_name = loaded_driver.toLowerCase().split("\\")
+    try {
+        if (x32) {
+            var loaded_driver = args[0].add(24).readUtf16String()
+        }
+        else {
+            var loaded_driver = args[0].add(16).readUtf16String()
+        }
+        var tmp_driver_name = loaded_driver.toLowerCase().split("\\")
 
-    if (loaded_driver.toLowerCase().endsWith(".sys")) {
-        var driver_name = tmp_driver_name[tmp_driver_name.length - 1].replace(".sys", "")
-    }
-    else {
-        var driver_name = tmp_driver_name[tmp_driver_name.length - 1]
-    }
+        if (loaded_driver.toLowerCase().endsWith(".sys")) {
+            var driver_name = tmp_driver_name[tmp_driver_name.length - 1].replace(".sys", "")
+        }
+        else {
+            var driver_name = tmp_driver_name[tmp_driver_name.length - 1]
+        }
 
-    if (driver_name in loaded_drivers) {
-        loaded_drivers[driver_name].loaded = true
-        queue_loaded_drivers.push(loaded_drivers[driver_name])
-        return true
+        if (driver_name in loaded_drivers) {
+            loaded_drivers[driver_name].loaded = true
+            queue_loaded_drivers.push(loaded_drivers[driver_name])
+            return true
+        }
+    }
+    catch (e) {
+        return false
     }
 
     return false
@@ -138,41 +148,71 @@ function DeviceIoControl_OnEnter_Manager(this_cpy, symbol_src, args, is_kernel_l
     this_cpy.should_process = hook_enabled && !(excluded_ioctl.includes(this_cpy.ioctl))
 
     if (this_cpy.should_process) {
-        this_cpy.hex_in = hexdump(this_cpy.buff_in_addr, {
-            offset: 0,
-            length: this_cpy.buff_in_size,
-            header: true,
-            ansi: false
-        })
+        if (!this_cpy.buff_in_addr.isNull() && this_cpy.buff_in_size > 0 && this_cpy.buff_in_size <= 0x10000) {
+            try {
+                this_cpy.hex_in = hexdump(this_cpy.buff_in_addr, {
+                    offset: 0,
+                    length: this_cpy.buff_in_size,
+                    header: true,
+                    ansi: false
+                })
+            }
+            catch (e) {
+                this_cpy.hex_in = ""
+            }
+        }
+        else {
+            this_cpy.hex_in = ""
+        }
     }
 }
 
 function DeviceIoControl_OnLeave_Manager(this_cpy) {
     if (this_cpy.should_process) {
         var bytes_returned = 0
-        if (this_cpy.is_kernel_libs && this_cpy.bytes_returned_ptr) {
-            bytes_returned = this_cpy.bytes_returned_ptr.readU32()
+        if (this_cpy.is_kernel_libs && this_cpy.bytes_returned_ptr && !this_cpy.bytes_returned_ptr.isNull()) {
+            try {
+                bytes_returned = this_cpy.bytes_returned_ptr.readU32()
+            }
+            catch (e) {
+                bytes_returned = 0
+            }
         }
 
         let actual_out_size = bytes_returned > 0 ? bytes_returned : this_cpy.buff_out_size
 
-        let out_buffer = this_cpy.buff_out_addr.readByteArray(actual_out_size)
-        let out_bytes = new Uint8Array(out_buffer)
-        
-        for (let i = 0; i < out_bytes.length - 2; i++) {
-            if (out_bytes[i] === 0x50 && out_bytes[i + 1] === 0x00 && out_bytes[i + 2] === 0xc5) {
-                this_cpy.buff_out_addr.add(i).writeU8(0xcc)
-                this_cpy.buff_out_addr.add(i + 1).writeU8(0xdd)
-                this_cpy.buff_out_addr.add(i + 2).writeU8(0xee)
-            }
+        if (actual_out_size > 0x10000) {
+            actual_out_size = 0x10000
         }
 
-        let hex_out = hexdump(this_cpy.buff_out_addr, {
-            offset: 0,
-            length: actual_out_size,
-            header: true,
-            ansi: false
-        })
+        let hex_out = ""
+
+        if (!this_cpy.buff_out_addr.isNull() && actual_out_size > 0) {
+            try {
+                let hex_out_original = hexdump(this_cpy.buff_out_addr, {
+                    offset: 0,
+                    length: actual_out_size,
+                    header: true,
+                    ansi: false
+                })
+
+                let out_buffer = this_cpy.buff_out_addr.readByteArray(actual_out_size)
+                let out_bytes = new Uint8Array(out_buffer)
+                
+                for (let i = 0; i < out_bytes.length - 2; i++) {
+                    if (out_bytes[i] === 0x50 && out_bytes[i + 1] === 0x00 && out_bytes[i + 2] === 0xc5) {
+                        this_cpy.buff_out_addr.add(i).writeU8(0xcc)
+                        this_cpy.buff_out_addr.add(i + 1).writeU8(0xdd)
+                        this_cpy.buff_out_addr.add(i + 2).writeU8(0xee)
+                    }
+                }
+
+                hex_out = hex_out_original
+            }
+            catch (e) {
+                hex_out = ""
+            }
+        }
 
         let params = '{' +
             ' "symbol":"' + this_cpy.symbol_src + '", ' +
@@ -250,32 +290,41 @@ Interceptor.attach(DeviceIoControl_kernelbase, {
 });
 
 function ZwNt_CreateFile_Manager(args) {
-    if (x32) {
-        var path = args[2].add(8).readPointer().add(4).readPointer().readUtf16String()
+    try {
+        if (x32) {
+            var path = args[2].add(8).readPointer().add(4).readPointer().readUtf16String()
+        }
+        else {
+            var path = args[2].add(16).readPointer().add(8).readPointer().readUtf16String()
+        }
+        var handle = args[0].readPointer().toUInt32()
+        if (((path.toLowerCase().startsWith('\\??\\')) && !(path.toLowerCase().startsWith('\\??\\c:'))) || (path.toLowerCase().startsWith('\\device\\')) || (path.toLowerCase().endsWith('.sys'))) {
+            open_handles[handle] = path
+        }
     }
-    else {
-        var path = args[2].add(16).readPointer().add(8).readPointer().readUtf16String()
+    catch (e) {
     }
-    var handle = args[0].readPointer().toUInt32()
-    if (((path.toLowerCase().startsWith('\\??\\')) && !(path.toLowerCase().startsWith('\\??\\c:'))) || (path.toLowerCase().startsWith('\\device\\')) || (path.toLowerCase().endsWith('.sys'))) {
-        open_handles[handle] = path
-    };
     return true
 }
 
 function Commons_CreateFile_OnEnter_Manager(this_cpy, args, isAnsi) {
     this_cpy.match = false
 
-    if (isAnsi) {
-        this_cpy.path = Memory.readAnsiString(args[0])
-    }
-    else {
-        this_cpy.path = Memory.readUtf16String(args[0])
-    }
+    try {
+        if (isAnsi) {
+            this_cpy.path = Memory.readAnsiString(args[0])
+        }
+        else {
+            this_cpy.path = Memory.readUtf16String(args[0])
+        }
 
-    if (this_cpy.path.startsWith('\\')) {
-        this_cpy.match = true
-    };
+        if (this_cpy.path.startsWith('\\')) {
+            this_cpy.match = true
+        }
+    }
+    catch (e) {
+        this_cpy.match = false
+    }
 
     return true;
 }
@@ -284,7 +333,7 @@ function Commons_CreateFile_OnLeave_Manager(this_cpy, retval) {
     if (this_cpy.match) {
         var handle = retval.toUInt32()
         open_handles[handle] = this_cpy.path
-    };
+    }
     return true;
 }
 
@@ -326,17 +375,21 @@ Interceptor.attach(CreateFileA_kernelbase, {
 
 Interceptor.attach(RegSetValueExW_advapi32, {
     onEnter(args) {
-        if (args[1].readUtf16String().includes("ImagePath")) {
-            var img_pth = args[4].readUtf16String()
-            var cur_hkey = getPathByHandle(args[0].toUInt32())
-            if (cur_hkey.toLowerCase().includes("controlset")) {
-                var tmp_driver_name = cur_hkey.toLowerCase().split("services\\")
-                var driver_name = tmp_driver_name[tmp_driver_name.length - 1]
+        try {
+            if (args[1].readUtf16String().includes("ImagePath")) {
+                var img_pth = args[4].readUtf16String()
+                var cur_hkey = getPathByHandle(args[0].toUInt32())
+                if (cur_hkey.toLowerCase().includes("controlset")) {
+                    var tmp_driver_name = cur_hkey.toLowerCase().split("services\\")
+                    var driver_name = tmp_driver_name[tmp_driver_name.length - 1]
 
-                if (!(driver_name in loaded_drivers)) {
-                    loaded_drivers[driver_name] = { name: driver_name, key: cur_hkey, image_path: img_pth, loaded: false }
+                    if (!(driver_name in loaded_drivers)) {
+                        loaded_drivers[driver_name] = { name: driver_name, key: cur_hkey, image_path: img_pth, loaded: false }
+                    }
                 }
             }
+        }
+        catch (e) {
         }
     },
 });
