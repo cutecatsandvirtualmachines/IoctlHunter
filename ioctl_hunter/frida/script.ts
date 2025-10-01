@@ -161,16 +161,13 @@ function DeviceIoControl_OnLeave_Manager(this_cpy) {
         
         for (let i = 0; i < out_bytes.length - 2; i++) {
             if (out_bytes[i] === 0x50 && out_bytes[i + 1] === 0x00 && out_bytes[i + 2] === 0xc5) {
-                out_bytes[i] = 0xcc
-                out_bytes[i + 1] = 0xdd
-                out_bytes[i + 2] = 0xee
+                this_cpy.buff_out_addr.add(i).writeU8(0xcc)
+                this_cpy.buff_out_addr.add(i + 1).writeU8(0xdd)
+                this_cpy.buff_out_addr.add(i + 2).writeU8(0xee)
             }
         }
 
-        let modified_buffer = Memory.alloc(actual_out_size)
-        modified_buffer.writeByteArray(Array.from(out_bytes))
-
-        let hex_out = hexdump(modified_buffer, {
+        let hex_out = hexdump(this_cpy.buff_out_addr, {
             offset: 0,
             length: actual_out_size,
             header: true,
