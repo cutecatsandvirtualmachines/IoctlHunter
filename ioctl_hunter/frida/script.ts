@@ -136,6 +136,15 @@ function DeviceIoControl_OnEnter_Manager(this_cpy, symbol_src, args, is_kernel_l
     this_cpy.symbol_src = symbol_src
     this_cpy.is_kernel_libs = is_kernel_libs
     this_cpy.should_process = hook_enabled && !(excluded_ioctl.includes(this_cpy.ioctl))
+
+    if (this_cpy.should_process) {
+        this_cpy.hex_in = hexdump(this_cpy.buff_in_addr, {
+            offset: 0,
+            length: this_cpy.buff_in_size,
+            header: true,
+            ansi: false
+        })
+    }
 }
 
 function DeviceIoControl_OnLeave_Manager(this_cpy) {
@@ -146,13 +155,6 @@ function DeviceIoControl_OnLeave_Manager(this_cpy) {
         }
 
         let actual_out_size = bytes_returned > 0 ? bytes_returned : this_cpy.buff_out_size
-
-        let hex_in = hexdump(this_cpy.buff_in_addr, {
-            offset: 0,
-            length: this_cpy.buff_in_size,
-            header: true,
-            ansi: false
-        })
 
         let hex_out = hexdump(this_cpy.buff_out_addr, {
             offset: 0,
@@ -168,7 +170,7 @@ function DeviceIoControl_OnLeave_Manager(this_cpy) {
             ' "ioctl":"' + this_cpy.ioctl + '", ' +
             ' "buff_in": { ' +
             ' "size":"' + this_cpy.buff_in_size + '", ' +
-            ' "hexdump":"' + encodeURI(hex_in) + '" ' +
+            ' "hexdump":"' + encodeURI(this_cpy.hex_in) + '" ' +
             ' }, ' +
             ' "buff_out": { ' +
             ' "size":"' + this_cpy.buff_out_size + '", ' +
