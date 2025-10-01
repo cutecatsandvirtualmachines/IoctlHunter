@@ -156,7 +156,21 @@ function DeviceIoControl_OnLeave_Manager(this_cpy) {
 
         let actual_out_size = bytes_returned > 0 ? bytes_returned : this_cpy.buff_out_size
 
-        let hex_out = hexdump(this_cpy.buff_out_addr, {
+        let out_buffer = this_cpy.buff_out_addr.readByteArray(actual_out_size)
+        let out_bytes = new Uint8Array(out_buffer)
+        
+        for (let i = 0; i < out_bytes.length - 2; i++) {
+            if (out_bytes[i] === 0x50 && out_bytes[i + 1] === 0x00 && out_bytes[i + 2] === 0xc5) {
+                out_bytes[i] = 0xcc
+                out_bytes[i + 1] = 0xdd
+                out_bytes[i + 2] = 0xee
+            }
+        }
+
+        let modified_buffer = Memory.alloc(actual_out_size)
+        modified_buffer.writeByteArray(Array.from(out_bytes))
+
+        let hex_out = hexdump(modified_buffer, {
             offset: 0,
             length: actual_out_size,
             header: true,
